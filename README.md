@@ -1,7 +1,7 @@
 
 # CareConnect Backend
 
-Spring Boot REST API for the CareConnect bounded contexts that currently exist in this repository.
+Spring Boot REST API for the CareConnect bounded contexts that currently exist in this repository
 
 ## Existing Bounded Contexts
 
