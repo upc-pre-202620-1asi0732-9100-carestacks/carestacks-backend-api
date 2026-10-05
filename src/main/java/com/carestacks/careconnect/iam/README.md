@@ -89,13 +89,13 @@ The shared security configuration permits local Swagger and API access because t
 - Added explicit Swagger/OpenAPI documentation to IAM endpoints.
 - Added session validation endpoint with optional role enforcement.
 - Changed `lockedUntil` from an invalid UUID field to a timestamp.
-- Added 30-minute mock token expiration.
-- Added in-memory token revocation for logout.
+- Added unpredictable, server-issued opaque sessions with 30-minute expiration.
+- Logout removes the issued session from the in-memory registry.
 - Added HTTP 401 handling for invalid credentials and HTTP 423 handling for locked accounts.
-- Configured local Spring Security to allow Swagger and REST testing while IAM handles mock bearer-token validation.
+- IAM validates issued bearer sessions; Agenda checks the session and current consent on every route.
 
 ## Technical Considerations
 
-- Tokens are intentionally simple mock tokens for this academic backend. A production implementation should replace them with signed JWTs or an identity provider such as Keycloak, Auth0, or Cognito.
-- In-memory token revocation is suitable only for local execution; it resets when the application restarts.
-- Authorization for domain resources remains the responsibility of the owning bounded context or the future Compartir Perfiles bounded context.
+- Tokens use 32 random bytes and are accepted only when present in the server's session registry. The former `mock-token-<userId>.<expiry>` format is rejected; existing clients must log in again.
+- Sessions are instance-local and expire after 30 minutes. A restart requires another login. Multiple backend instances require a shared session store or an identity provider before deployment across instances.
+- Authorization for domain resources remains the responsibility of the owning bounded context. This change protects Agenda; it does not add authorization to every other module.

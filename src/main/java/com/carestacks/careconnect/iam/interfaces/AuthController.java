@@ -46,7 +46,7 @@ public class AuthController {
         return ResponseEntity.created(URI.create("/api/auth/me")).body(userDto);
     }
 
-    @Operation(summary = "Log in", description = "Authenticates a user and returns a mock bearer token that expires after 30 minutes.")
+    @Operation(summary = "Log in", description = "Authenticates a user and returns a server-issued opaque bearer session that expires after 30 minutes.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Login succeeded",
                     content = @Content(schema = @Schema(implementation = LoginResponse.class))),
@@ -58,7 +58,7 @@ public class AuthController {
         return ResponseEntity.ok(authService.login(request));
     }
 
-    @Operation(summary = "Log out", description = "Revokes the provided mock bearer token for the current application instance.")
+    @Operation(summary = "Log out", description = "Revokes the provided bearer session for the current application instance.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Logout succeeded"),
             @ApiResponse(responseCode = "400", description = "Invalid bearer token")

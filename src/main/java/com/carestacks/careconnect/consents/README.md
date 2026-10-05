@@ -23,4 +23,4 @@ Bounded context for patient profile sharing with caregivers.
 - `PUT /api/consents/{consentId}/views`: update visible views.
 - `DELETE /api/consents/{consentId}`: revoke access.
 
-All endpoints expect `Authorization: Bearer <mock-token>` from the IAM login flow.
+All endpoints expect `Authorization: Bearer <token>` with the opaque session returned by the IAM login flow.

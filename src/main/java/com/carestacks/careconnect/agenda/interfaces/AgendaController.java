@@ -1,6 +1,7 @@
 package com.carestacks.careconnect.agenda.interfaces;
 
 import com.carestacks.careconnect.agenda.application.abstractions.AgendaService;
+import com.carestacks.careconnect.agenda.infrastructure.AgendaAccess;
 import com.carestacks.careconnect.agenda.application.agenda.dtos.HealthEventDto;
 import com.carestacks.careconnect.agenda.application.agenda.requests.CreateHealthEventRequest;
 import com.carestacks.careconnect.agenda.application.agenda.requests.RescheduleHealthEventRequest;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,9 +39,11 @@ import java.util.UUID;
 public class AgendaController {
 
     private final AgendaService agendaService;
+    private final AgendaAccess agendaAccess;
 
-    public AgendaController(AgendaService agendaService) {
+    public AgendaController(AgendaService agendaService, AgendaAccess agendaAccess) {
         this.agendaService = agendaService;
+        this.agendaAccess = agendaAccess;
     }
 
     @Operation(summary = "Create a health event", description = "Registers a patient health event and creates a reminder 24 hours before the event when possible.")
@@ -49,24 +53,29 @@ public class AgendaController {
             @ApiResponse(responseCode = "400", description = "Invalid event data or schedule conflict")
     })
     @PostMapping
-    public ResponseEntity<HealthEventDto> create(@Valid @RequestBody CreateHealthEventRequest request) {
+    public ResponseEntity<HealthEventDto> create(@Valid @RequestBody CreateHealthEventRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        agendaAccess.requireCreation(authorization, request);
         var event = agendaService.create(request);
         return ResponseEntity.created(URI.create("/api/agenda/" + event.id())).body(event);
     }
 
-    @Operation(summary = "List health events", description = "Returns every health event ordered by start date.")
+    @Operation(summary = "List health events", description = "Returns only the current patient's agenda or the caregiver's authorized shared agenda.")
     @ApiResponse(responseCode = "200", description = "Health events returned")
     @GetMapping
-    public ResponseEntity<List<HealthEventDto>> getAll() {
-        return ResponseEntity.ok(agendaService.getAll());
+    public ResponseEntity<List<HealthEventDto>> getAll(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        return ResponseEntity.ok(agendaService.getByPatient(agendaAccess.visiblePatient(authorization)));
     }
 
     @Operation(summary = "List health events by patient", description = "Returns the calendar of health events owned by a patient.")
     @ApiResponse(responseCode = "200", description = "Patient health events returned")
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<List<HealthEventDto>> getByPatient(
-            @Parameter(description = "Patient identifier") @PathVariable UUID patientId
+            @Parameter(description = "Patient identifier") @PathVariable UUID patientId,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        agendaAccess.requirePatient(authorization, patientId);
         return ResponseEntity.ok(agendaService.getByPatient(patientId));
     }
 
@@ -75,8 +84,10 @@ public class AgendaController {
     @GetMapping("/date")
     public ResponseEntity<List<HealthEventDto>> getByPatientAndDate(
             @Parameter(description = "Patient identifier") @RequestParam UUID patientId,
-            @Parameter(description = "Calendar date in ISO format") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
+            @Parameter(description = "Calendar date in ISO format") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        agendaAccess.requirePatient(authorization, patientId);
         return ResponseEntity.ok(agendaService.getByPatientAndDate(patientId, date));
     }
 
@@ -87,9 +98,10 @@ public class AgendaController {
     })
     @GetMapping("/{id}")
     public ResponseEntity<HealthEventDto> getById(
-            @Parameter(description = "Health event identifier") @PathVariable UUID id
+            @Parameter(description = "Health event identifier") @PathVariable UUID id,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        return ResponseEntity.ok(agendaService.getById(id));
+        return ResponseEntity.ok(agendaAccess.requireEvent(authorization, id));
     }
 
     @Operation(summary = "Update a health event", description = "Updates title, description, type, and schedule while preserving conflict validation.")
@@ -101,8 +113,10 @@ public class AgendaController {
     @PutMapping("/{id}")
     public ResponseEntity<HealthEventDto> update(
             @Parameter(description = "Health event identifier") @PathVariable UUID id,
-            @Valid @RequestBody UpdateHealthEventRequest request
+            @Valid @RequestBody UpdateHealthEventRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        agendaAccess.requireEvent(authorization, id);
         return ResponseEntity.ok(agendaService.update(id, request));
     }
 
@@ -114,8 +128,10 @@ public class AgendaController {
     })
     @PatchMapping("/{id}/confirm")
     public ResponseEntity<HealthEventDto> confirm(
-            @Parameter(description = "Health event identifier") @PathVariable UUID id
+            @Parameter(description = "Health event identifier") @PathVariable UUID id,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        agendaAccess.requireEvent(authorization, id);
         return ResponseEntity.ok(agendaService.confirm(id));
     }
 
@@ -128,8 +144,10 @@ public class AgendaController {
     @PatchMapping("/{id}/reschedule")
     public ResponseEntity<HealthEventDto> reschedule(
             @Parameter(description = "Health event identifier") @PathVariable UUID id,
-            @Valid @RequestBody RescheduleHealthEventRequest request
+            @Valid @RequestBody RescheduleHealthEventRequest request,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        agendaAccess.requireEvent(authorization, id);
         return ResponseEntity.ok(agendaService.reschedule(id, request));
     }
 
@@ -140,8 +158,10 @@ public class AgendaController {
     })
     @PatchMapping("/{id}/cancel")
     public ResponseEntity<HealthEventDto> cancel(
-            @Parameter(description = "Health event identifier") @PathVariable UUID id
+            @Parameter(description = "Health event identifier") @PathVariable UUID id,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        agendaAccess.requireEvent(authorization, id);
         return ResponseEntity.ok(agendaService.cancel(id));
     }
 
@@ -152,8 +172,10 @@ public class AgendaController {
     })
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
-            @Parameter(description = "Health event identifier") @PathVariable UUID id
+            @Parameter(description = "Health event identifier") @PathVariable UUID id,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        agendaAccess.requireEvent(authorization, id);
         agendaService.delete(id);
         return ResponseEntity.noContent().build();
     }

@@ -27,7 +27,9 @@ class CoreApiIntegrationTests {
 
     @Test
     void agendaPersistsCreationConfirmationAndRescheduling() throws Exception {
-        var patientId = UUID.randomUUID();
+        var patient = registerUser("PATIENT");
+        var patientId = patient.id();
+        var token = login(patient.email());
         var start = LocalDateTime.now().plusDays(10).withNano(0);
         var end = start.plusHours(1);
         var body = """
@@ -35,16 +37,16 @@ class CoreApiIntegrationTests {
                  "startAt":"%s","endAt":"%s"}
                 """.formatted(patientId, start, end);
 
-        var created = request("POST", "/api/agenda", body, null);
+        var created = request("POST", "/api/agenda", body, token);
         assertEquals(201, created.statusCode(), created.body());
         var eventId = UUID.fromString(json(created).get("id").asText());
         assertEquals("PENDING", json(created).get("status").asText());
 
-        var fetched = request("GET", "/api/agenda/" + eventId, null, null);
+        var fetched = request("GET", "/api/agenda/" + eventId, null, token);
         assertEquals(200, fetched.statusCode(), fetched.body());
         assertEquals(patientId.toString(), json(fetched).get("patientId").asText());
 
-        var confirmed = request("PATCH", "/api/agenda/" + eventId + "/confirm", null, null);
+        var confirmed = request("PATCH", "/api/agenda/" + eventId + "/confirm", null, token);
         assertEquals(200, confirmed.statusCode(), confirmed.body());
         assertEquals("CONFIRMED", json(confirmed).get("status").asText());
 
@@ -53,12 +55,12 @@ class CoreApiIntegrationTests {
         var rescheduleBody = """
                 {"startAt":"%s","endAt":"%s"}
                 """.formatted(newStart, newEnd);
-        var rescheduled = request("PATCH", "/api/agenda/" + eventId + "/reschedule", rescheduleBody, null);
+        var rescheduled = request("PATCH", "/api/agenda/" + eventId + "/reschedule", rescheduleBody, token);
         assertEquals(200, rescheduled.statusCode(), rescheduled.body());
         assertEquals("PENDING", json(rescheduled).get("status").asText());
         assertEquals(newStart.toString(), json(rescheduled).get("startAt").asText());
 
-        var persisted = request("GET", "/api/agenda/" + eventId, null, null);
+        var persisted = request("GET", "/api/agenda/" + eventId, null, token);
         assertEquals(200, persisted.statusCode(), persisted.body());
         assertEquals(newStart.toString(), json(persisted).get("startAt").asText());
     }
