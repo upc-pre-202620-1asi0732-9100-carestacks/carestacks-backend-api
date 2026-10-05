@@ -36,7 +36,7 @@ Agenda manages the lifecycle of patient health events: scheduling, conflict dete
 - Create a health event.
 - Detect overlapping active schedules.
 - Generate and update reminders.
-- List all health events.
+- List health events for the caller's patient profile.
 - List patient events.
 - List patient events by calendar date.
 - Get a health event by ID.
@@ -51,7 +51,7 @@ Agenda manages the lifecycle of patient health events: scheduling, conflict dete
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/api/agenda` | Creates a health event and reminder. |
-| `GET` | `/api/agenda` | Lists all health events. |
+| `GET` | `/api/agenda` | Lists the current patient's events or the caregiver's authorized patient profile. |
 | `GET` | `/api/agenda/patient/{patientId}` | Lists health events for a patient. |
 | `GET` | `/api/agenda/date?patientId={patientId}&date={yyyy-MM-dd}` | Lists patient events for one date. |
 | `GET` | `/api/agenda/{id}` | Gets a health event by ID. |
@@ -60,6 +60,14 @@ Agenda manages the lifecycle of patient health events: scheduling, conflict dete
 | `PATCH` | `/api/agenda/{id}/reschedule` | Reschedules a health event and reminder. |
 | `PATCH` | `/api/agenda/{id}/cancel` | Cancels a health event. |
 | `DELETE` | `/api/agenda/{id}` | Deletes a health event and its reminder. |
+
+## Authorization
+
+Every Agenda endpoint requires `Authorization: Bearer <token>` from IAM login. A patient can access their own agenda; a caregiver needs an active consent with `AGENDA` for that patient. Each read and mutation rechecks consent, so removing that view or revoking consent blocks the next request. Creating an event as caregiver records the session's caregiver ID and rejects another caregiver's ID.
+
+Missing, fabricated, expired, or logged-out sessions return HTTP 401. A valid session without ownership or current consent returns HTTP 403. `/api/agenda` never returns the global event list. Flutter web and mobile callers send the session explicitly and discard cached lists on 401/403.
+
+Before deploying the backend, every patient client must send its login token on Agenda calls. The native Android patient source was unavailable for this verification and still requires compatibility validation. IAM sessions are instance-local; see the IAM README for restart and multi-instance limitations.
 
 ## Pending Endpoints
 
@@ -74,7 +82,7 @@ Agenda manages the lifecycle of patient health events: scheduling, conflict dete
 1. Run `mvn test`.
 2. Start the application with `mvn spring-boot:run`.
 3. Open `http://localhost:8080/swagger-ui.html`.
-4. Create an event with `POST /api/agenda`.
+4. Register/login as patient, then create an event with `POST /api/agenda` and the returned bearer token. A caregiver must first receive Agenda consent from the patient.
 5. Query the patient calendar with `/api/agenda/patient/{patientId}` or `/api/agenda/date`.
 6. Confirm, reschedule, cancel, or delete the event through the corresponding endpoint.
 

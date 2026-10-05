@@ -19,8 +19,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.Clock;
 import java.time.ZoneOffset;
-import java.util.Set;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,15 +31,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AuthServiceImpl implements AuthService {
 
     private static final long SESSION_EXPIRATION_SECONDS = 30L * 60L;
-    private static final String TOKEN_PREFIX = "mock-token-";
+    private static final SecureRandom TOKEN_RANDOM = new SecureRandom();
 
     private final UserJpaRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final Set<String> revokedTokens = ConcurrentHashMap.newKeySet();
+    private final Clock clock;
+    private final Map<String, ParsedToken> sessions = new ConcurrentHashMap<>();
 
-    public AuthServiceImpl(UserJpaRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthServiceImpl(UserJpaRepository userRepository, PasswordEncoder passwordEncoder, Clock clock) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.clock = clock;
     }
 
     @Override
@@ -54,7 +59,7 @@ public class AuthServiceImpl implements AuthService {
         );
 
         var savedUser = userRepository.save(UserMapper.toEntity(user));
-        var token = generateMockToken(savedUser.getId());
+        var token = generateSessionToken(savedUser.getId());
 
         return LoginResponse.of(token, SESSION_EXPIRATION_SECONDS);
     }
@@ -89,7 +94,7 @@ public class AuthServiceImpl implements AuthService {
         user.recordSuccessfulLogin();
         userRepository.save(UserMapper.toEntity(user));
 
-        var token = generateMockToken(user.getId());
+        var token = generateSessionToken(user.getId());
         return LoginResponse.of(token, SESSION_EXPIRATION_SECONDS);
     }
 
@@ -97,7 +102,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void logout(String token) {
         validateTokenOrThrow(token);
-        revokedTokens.add(token);
+        sessions.remove(token);
     }
 
     @Override
@@ -145,34 +150,27 @@ public class AuthServiceImpl implements AuthService {
         return validateTokenOrThrow(token).userId();
     }
 
-    private String generateMockToken(UUID userId) {
-        var expiresAt = LocalDateTime.now().plusSeconds(SESSION_EXPIRATION_SECONDS);
-        var expiresAtEpochSeconds = expiresAt.toEpochSecond(ZoneOffset.UTC);
-        return TOKEN_PREFIX + userId + "." + expiresAtEpochSeconds;
+    private String generateSessionToken(UUID userId) {
+        var now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        sessions.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
+        var bytes = new byte[32];
+        TOKEN_RANDOM.nextBytes(bytes);
+        var token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        sessions.put(token, new ParsedToken(userId, now.plusSeconds(SESSION_EXPIRATION_SECONDS)));
+        return token;
     }
 
     private ParsedToken validateTokenOrThrow(String token) {
-        if (token == null || !token.startsWith(TOKEN_PREFIX) || revokedTokens.contains(token)) {
+        var session = token == null ? null : sessions.get(token);
+        if (session == null) {
             throw new BusinessRuleException("Tu sesión no está activa. Inicia sesión nuevamente");
         }
 
-        var tokenPayload = token.substring(TOKEN_PREFIX.length());
-        var separatorIndex = tokenPayload.lastIndexOf('.');
-        if (separatorIndex <= 0 || separatorIndex == tokenPayload.length() - 1) {
-            throw new BusinessRuleException("Tu sesión no está activa. Inicia sesión nuevamente");
+        if (!session.expiresAt().isAfter(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC))) {
+            sessions.remove(token, session);
+            throw new BusinessRuleException("Tu sesión expiró. Inicia sesión nuevamente");
         }
-
-        try {
-            var userId = UUID.fromString(tokenPayload.substring(0, separatorIndex));
-            var expiresAtEpochSeconds = Long.parseLong(tokenPayload.substring(separatorIndex + 1));
-            var expiresAt = LocalDateTime.ofEpochSecond(expiresAtEpochSeconds, 0, ZoneOffset.UTC);
-            if (expiresAt.isBefore(LocalDateTime.now())) {
-                throw new BusinessRuleException("Tu sesión expiró. Inicia sesión nuevamente");
-            }
-            return new ParsedToken(userId, expiresAt);
-        } catch (IllegalArgumentException exception) {
-            throw new BusinessRuleException("Tu sesión no está activa. Inicia sesión nuevamente");
-        }
+        return session;
     }
 
     private boolean isLocked(LocalDateTime lockedUntil) {
